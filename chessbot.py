@@ -97,6 +97,73 @@ def correct_orientation(board):
     return board
 
 
+def castling_rights(board):
+    """
+    Castling field inferred from the king and rook home squares.
+
+    Optimistic by necessity -- a photo can't show whether anyone has already
+    moved, so a king that castled and returned to e1 still counts.
+
+    Takes the uncompressed board (rows of 8 chars, "1" per empty square);
+    returns e.g. "KQkq", or "-".
+    """
+
+    rows = board.split("/")
+
+    if len(rows) != 8 or any(len(row) != 8 for row in rows):
+        return "-"
+
+    # Row 0 = rank 8, row 7 = rank 1; column 0 = a-file, 4 = e-file, 7 = h-file.
+    rights = ""
+
+    if rows[7][4] == "K":
+        if rows[7][7] == "R":
+            rights += "K"
+        if rows[7][0] == "R":
+            rights += "Q"
+
+    if rows[0][4] == "k":
+        if rows[0][7] == "r":
+            rights += "k"
+        if rows[0][0] == "r":
+            rights += "q"
+
+    return rights or "-"
+
+
+def find_position_problem(board_field):
+    """
+    Why board_field can't be a real position, or None if it looks playable.
+
+    Takes the compressed board field -- exactly what goes into the URL.
+    """
+
+    ranks = board_field.split("/")
+
+    if len(ranks) != 8:
+        return f"the board has {len(ranks)} ranks instead of 8"
+
+    for index, rank in enumerate(ranks):
+        squares = sum(int(char) if char.isdigit() else 1 for char in rank)
+
+        if squares != 8:
+            return f"rank {8 - index} covers {squares} squares instead of 8"
+
+    white_kings = board_field.count("K")
+    black_kings = board_field.count("k")
+
+    if white_kings != 1 or black_kings != 1:
+        return (
+            f"I read {white_kings} white king(s) and {black_kings} black "
+            "king(s), and there should be exactly one of each"
+        )
+
+    if any(char in "Pp" for char in ranks[0] + ranks[7]):
+        return "there's a pawn on the first or last rank, which can't happen"
+
+    return None
+
+
 def main():
     while True:
         try:
@@ -150,14 +217,26 @@ def main():
             # index rows/columns correctly).
             fen = correct_orientation(fen)
 
+            # Before compression, which collapses the empty squares.
+            castling = castling_rights(fen)
+
             # chessimg2pos returns empty squares as literal "1" characters
             # repeated (e.g. 111k1111) rather than standard compressed FEN
             # (3k4). Compress before building the URL.
             fen = compress_fen(fen)
 
+            problem = find_position_problem(fen)
+
+            if problem:
+                raise RuntimeError(
+                    f"That board didn't come out as a legal position -- "
+                    f"{problem}. Try a clearer or more tightly-framed photo."
+                )
+
             # Add the standard fields needed by Lichess, using the
             # side-to-move passed in from the WhatsApp command (wtp/btp).
-            full_fen = f"{fen} {side_to_move} - - 0 1"
+            # En passant stays "-": a photo can't show the previous move.
+            full_fen = f"{fen} {side_to_move} {castling} - 0 1"
 
             lichess_url = (
                 "https://lichess.org/analysis/standard/"
