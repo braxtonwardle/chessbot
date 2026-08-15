@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 
 // ============================================================
-// PYTHON CHESS ENGINE  (unchanged from the whatsapp-web.js version)
+// PYTHON CHESS ENGINE
 // ============================================================
 
 console.log('Starting chess engine...');
