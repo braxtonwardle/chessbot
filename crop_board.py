@@ -127,6 +127,124 @@ def _refine_via_sliding_square(gray, box, min_score=CHESSBOARD_MIN_SCORE, steps=
         return (x, y + best_offset, size, size), best_score
 
 
+def _best_square_in_range(gray, x_min, x_max, y_min, y_max, sizes, position_steps):
+    """
+    Scans square candidates of the given sizes across [x_min, x_max] x
+    [y_min, y_max] for the strongest checkerboard pattern. Shared by the
+    coarse whole-image search and its local fine-refinement pass below.
+
+    Returns (x, y, size, size), score for the best candidate found (even
+    if weak) -- callers are responsible for applying a min_score cutoff.
+    """
+
+    height, width = gray.shape[:2]
+    x_min = max(x_min, 0)
+    y_min = max(y_min, 0)
+
+    best_box = None
+    best_score = 0
+
+    for size in sizes:
+
+        if size <= 0:
+            continue
+
+        local_x_max = min(x_max, width - size)
+        local_y_max = min(y_max, height - size)
+
+        if local_x_max < x_min or local_y_max < y_min:
+            continue
+
+        for xi in range(position_steps + 1):
+            x = int(x_min + (local_x_max - x_min) * xi / position_steps) if local_x_max > x_min else x_min
+
+            for yi in range(position_steps + 1):
+                y = int(y_min + (local_y_max - y_min) * yi / position_steps) if local_y_max > y_min else y_min
+
+                candidate = gray[y:y + size, x:x + size]
+
+                if candidate.shape[0] != size or candidate.shape[1] != size:
+                    continue
+
+                score = _chessboard_likeness(candidate)
+
+                if score > best_score:
+                    best_score = score
+                    best_box = (x, y, size, size)
+
+    if best_box is None:
+        return None
+
+    return best_box, best_score
+
+
+def _search_whole_image(gray, min_score=CHESSBOARD_MIN_SCORE,
+                         size_steps=6, position_steps=10,
+                         min_size_fraction=0.25):
+    """
+    Last resort when the outer contour isn't the board's own shape at
+    all -- e.g. a screenshot where nearby message bubbles above/below
+    fused with the board into one tall blob under edge dilation, so
+    neither the blob's width nor height is actually the board's size.
+    _refine_via_sliding_square can't help there since it trusts one of
+    those two dimensions.
+
+    Coarsely scans square windows across the whole image at multiple
+    sizes and positions for the strongest checkerboard pattern, then
+    refines locally around the best hit with finer position steps and a
+    narrower band of nearby sizes -- the coarse grid alone lands close to
+    the board but rarely on its exact edges, and an off-by-a-rank crop is
+    exactly what this module exists to prevent. A contour-based refine
+    was tried here first, but re-running Canny/dilate on a tight crop
+    just rediscovers the same problem this function exists to route
+    around (the crop boundary itself gets picked up as a false edge, or
+    a slightly-too-generous margin drags the same clutter back in) --
+    plain position-grid refinement is the more reliable of the two.
+
+    Returns (x, y, size, size), score if a confident square is found,
+    else None.
+    """
+
+    height, width = gray.shape[:2]
+    min_dim = min(height, width)
+
+    sizes = [
+        int(min_dim * (min_size_fraction + (1 - min_size_fraction) * i / max(size_steps - 1, 1)))
+        for i in range(size_steps)
+    ]
+
+    coarse = _best_square_in_range(gray, 0, width, 0, height, sizes, position_steps)
+
+    if coarse is None:
+        return None
+
+    (cx, cy, csize, _), coarse_score = coarse
+
+    # Local refinement: the coarse pass tends to land on a slightly
+    # undersized, roughly-correctly-positioned square (a smaller crop
+    # nested inside the true board still scores well, since most of its
+    # cells still alternate correctly). Search a band of larger sizes
+    # centered near the coarse hit, at much finer position steps, to
+    # converge on the true edges.
+    radius = csize // 4
+    fine_sizes = [
+        int(csize * factor)
+        for factor in (1.0, 1.03, 1.06, 1.09, 1.12, 1.15)
+    ]
+
+    fine = _best_square_in_range(
+        gray, cx - radius, cx + csize + radius, cy - radius, cy + csize + radius,
+        fine_sizes, position_steps=60
+    )
+
+    best_box, best_score = fine if fine and fine[1] >= coarse_score else coarse
+
+    if best_score < min_score:
+        return None
+
+    return best_box, best_score
+
+
 def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15,
                        min_score=CHESSBOARD_MIN_SCORE):
     """
@@ -234,6 +352,34 @@ def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15,
                     f"(aspect={n_aspect:.3f}, likely board+sidebar), "
                     f"refined via checkerboard pattern search to "
                     f"{rsize}x{rsize} at ({rx},{ry}) [score={score:.1f}] "
+                    f"-> {output_path}",
+                    file=sys.stderr
+                )
+
+                return output_path, True
+
+            # Still no luck -- the near-miss box's shape itself may not
+            # relate to the board at all (e.g. it swallowed message
+            # bubbles above/below a screenshot into one tall blob, so
+            # neither its width nor height is trustworthy). Fall back to
+            # scanning the whole image for the board directly.
+            searched = _search_whole_image(gray)
+
+            if searched:
+                (sx, sy, ssize, _), score = searched
+                cropped = image[sy:sy + ssize, sx:sx + ssize]
+
+                if output_path is None:
+                    base, ext = os.path.splitext(image_path)
+                    output_path = f"{base}_cropped{ext}"
+
+                cv2.imwrite(output_path, cropped)
+
+                print(
+                    f"crop_to_chessboard: outer contour ({nw}x{nh}, "
+                    f"aspect={n_aspect:.3f}) didn't match the board's own "
+                    f"shape, found it via a whole-image search instead at "
+                    f"{ssize}x{ssize} ({sx},{sy}) [score={score:.1f}] "
                     f"-> {output_path}",
                     file=sys.stderr
                 )

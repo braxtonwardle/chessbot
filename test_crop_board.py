@@ -64,6 +64,49 @@ def test_prefers_the_board_over_a_larger_square_panel():
         )
 
 
+def test_finds_board_sandwiched_between_ui_blocks():
+    """
+    Reproduces a real WhatsApp screenshot where message bubbles directly
+    above and below the board fused with it into one tall blob once
+    edges got dilated -- neither the blob's width nor height was the
+    board's own size, which _refine_via_sliding_square can't recover
+    from since it only trusts one axis of a near-miss box.
+    """
+    board_size = 400
+    board = _board_image(board_size)
+
+    canvas = np.full((1600, 738, 3), 30, np.uint8)
+
+    board_x, board_y = 169, 700
+
+    # Blocks directly touching the board above/below, wider than it --
+    # same shape as full-width chat bubbles sandwiching a narrower
+    # shared board image, so the fused blob's width comes from the
+    # bubbles rather than the board on either axis.
+    cv2.rectangle(canvas, (20, 540), (700, board_y), (60, 60, 60), -1)
+    cv2.rectangle(
+        canvas, (20, board_y + board_size), (700, 1260), (20, 90, 40), -1
+    )
+
+    canvas[board_y:board_y + board_size, board_x:board_x + board_size] = board
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = os.path.join(tmp, "sandwiched_board.png")
+        cv2.imwrite(source, canvas)
+
+        path, found = crop_to_chessboard(source)
+        assert found, "board should still be found even sandwiched between other UI blocks"
+
+        cropped = cv2.imread(path)
+        height, width = cropped.shape[:2]
+        aspect = width / height
+        assert 0.92 <= aspect <= 1.08, f"crop not square ({aspect:.3f})"
+        assert 340 <= width <= 460, (
+            f"crop size {width} is too far off the true board size ({board_size}) "
+            "-- likely grabbed surrounding UI instead of the board"
+        )
+
+
 def test_reports_failure_when_no_board_is_present():
     canvas = np.full((1000, 1500, 3), 30, np.uint8)
     _flat_card(canvas, 400, 130, 700)
@@ -89,6 +132,7 @@ if __name__ == "__main__":
     tests = [
         test_finds_board_in_committed_screenshots,
         test_prefers_the_board_over_a_larger_square_panel,
+        test_finds_board_sandwiched_between_ui_blocks,
         test_reports_failure_when_no_board_is_present,
     ]
 
