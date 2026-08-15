@@ -1,0 +1,3 @@
+chessimg2pos==0.1.6   # pinned: 0.1.x can change shape between releases
+opencv-python
+numpy
