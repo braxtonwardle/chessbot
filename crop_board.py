@@ -21,6 +21,10 @@ import os
 import sys
 
 
+# Real boards measure in the 50s-60s; flat UI panels measure ~0.
+CHESSBOARD_MIN_SCORE = 12.0
+
+
 def _chessboard_likeness(gray_region, grid_size=8, cell_px=20):
     """
     Scores how much a region looks like an occupied chessboard by
@@ -66,7 +70,7 @@ def _chessboard_likeness(gray_region, grid_size=8, cell_px=20):
     return best_score
 
 
-def _refine_via_sliding_square(gray, box, min_score=12.0, steps=15):
+def _refine_via_sliding_square(gray, box, min_score=CHESSBOARD_MIN_SCORE, steps=15):
     """
     Given a candidate box that's the right height but too wide (or
     right width but too tall) -- typically a board with a sidebar or
@@ -123,10 +127,11 @@ def _refine_via_sliding_square(gray, box, min_score=12.0, steps=15):
         return (x, y + best_offset, size, size), best_score
 
 
-def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15):
+def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15,
+                       min_score=CHESSBOARD_MIN_SCORE):
     """
-    Detects the largest roughly-square high-contrast region in the
-    image (the checkerboard) and crops to it.
+    Detects the roughly-square region whose contents look most like a
+    checkerboard and crops to it.
 
     Returns a tuple: (path_to_use, board_found)
 
@@ -146,6 +151,9 @@ def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15):
             this fraction of the total image area to be considered
             the board (filters out small false-positive squares like
             icons or buttons).
+        min_score: the candidate must also score at least this on
+            _chessboard_likeness, so a large square region that isn't a
+            board can't win on size alone.
     """
 
     image = cv2.imread(image_path)
@@ -170,7 +178,7 @@ def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15):
     )
 
     best_box = None
-    best_area = 0
+    best_score = 0
 
     # Track the best near-miss too, purely for diagnostics, so a failed
     # detection tells us *why* it failed instead of just that it did.
@@ -192,8 +200,13 @@ def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15):
 
         # Chessboards are square. Allow a little tolerance for
         # screenshot compression artifacts / anti-aliasing.
-        if 0.92 <= aspect_ratio <= 1.08 and area > best_area:
-            best_area = area
+        if not 0.92 <= aspect_ratio <= 1.08:
+            continue
+
+        score = _chessboard_likeness(gray[y:y + h, x:x + w])
+
+        if score >= min_score and score > best_score:
+            best_score = score
             best_box = (x, y, w, h)
 
     if best_box is None:
@@ -263,7 +276,8 @@ def crop_to_chessboard(image_path, output_path=None, min_area_fraction=0.15):
 
     print(
         f"crop_to_chessboard: cropped {image_path} "
-        f"({width}x{height}) -> {output_path} ({w}x{h})",
+        f"({width}x{height}) -> {output_path} ({w}x{h}) "
+        f"[score={best_score:.1f}]",
         file=sys.stderr
     )
 
