@@ -1,0 +1,23 @@
+{
+  "name": "chessbot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.23",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "file:../../../../Downloads/whatsapp-web.js-main/whatsapp-web.js-main"
+  },
+  "allowScripts": {
+    "puppeteer@24.38.0": true
+  }
+}

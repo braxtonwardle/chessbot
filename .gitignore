@@ -1,0 +1,28 @@
+# WhatsApp session credentials -- equivalent to being logged into the
+# account. Never commit this, even to a private repo.
+session/
+
+# Node dependencies -- reinstalled via `npm install`, shouldn't be tracked.
+node_modules/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Images downloaded/generated at runtime (chessbot.mjs cleans these up
+# automatically now, but ignore them in case any linger)
+received_*.jpeg
+received_*.jpg
+received_*.png
+*_cropped.*
+*_nearmiss.*
+
+# Old whatsapp-web.js checkout and its session/cache data, no longer used
+whatsapp-web.js-main/
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Editor/OS clutter
+.vscode/
+Thumbs.db
+.DS_Store
