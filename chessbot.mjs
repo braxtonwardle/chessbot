@@ -328,10 +328,6 @@ async function handleMessage(sock, message) {
         // 4. ANALYZE POSITION
         // ====================================================
 
-        await sock.sendMessage(groupId, {
-            text: 'Got it — analyzing the position... ♟️'
-        }, { quoted: message });
-
         const lichessUrl = await analyzeImage(imagePath, sideToMove);
 
         console.log(`Lichess URL: ${lichessUrl}`);
@@ -342,7 +338,7 @@ async function handleMessage(sock, message) {
         // ====================================================
 
         await sock.sendMessage(groupId, {
-            text: lichessUrl
+            text: `Here's the link: ${lichessUrl}`
         }, { quoted: message });
 
     } catch (error) {
