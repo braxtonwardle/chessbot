@@ -99,15 +99,26 @@ def correct_orientation(board):
 
 def main():
     while True:
-        line = input().strip()
+        try:
+            line = input().strip()
+        except EOFError:
+            break
 
         if not line:
             continue
 
-        # Node sends "image_path|side_to_move" -- "|" delimited since
-        # the path itself never contains one. side_to_move is "w" or
-        # "b"; defaults to "w" if missing or unrecognized.
-        parts = line.split("|")
+        # "request_id|image_path|side_to_move". The id is echoed back on the
+        # reply so Node can match a result to the request that asked for it.
+        request_id, separator, remainder = line.partition("|")
+
+        if not separator:
+            print(
+                f"Malformed request {line!r}, expected 'id|image_path|side'",
+                file=sys.stderr
+            )
+            continue
+
+        parts = remainder.split("|")
         image_path = parts[0]
         side_to_move = parts[1] if len(parts) > 1 else "w"
 
@@ -153,10 +164,10 @@ def main():
                 + full_fen.replace(" ", "_")
             )
 
-            print(lichess_url, flush=True)
+            print(f"{request_id}|{lichess_url}", flush=True)
 
         except Exception as e:
-            print(f"ERROR: {e}", flush=True)
+            print(f"{request_id}|ERROR: {e}", flush=True)
 
 
 if __name__ == "__main__":

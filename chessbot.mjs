@@ -25,22 +25,35 @@ const python = spawn('python', ['chessbot.py']);
 
 let pythonReady = false;
 let stdoutBuffer = '';
+let stderrBuffer = '';
 
 python.stderr.on('data', (data) => {
-    const message = data.toString().trim();
+    stderrBuffer += data.toString();
 
-    if (!message) {
-        return;
+    const lines = stderrBuffer.split('\n');
+    stderrBuffer = lines.pop();
+
+    for (const line of lines) {
+        const message = line.trim();
+
+        if (!message) {
+            continue;
+        }
+
+        if (message === 'READY') {
+            pythonReady = true;
+            console.log('Chess model is ready.');
+            continue;
+        }
+
+        console.log(`Python: ${message}`);
     }
-
-    if (message === 'READY') {
-        pythonReady = true;
-        console.log('Chess model is ready.');
-        return;
-    }
-
-    console.log(`Python: ${message}`);
 });
+
+// Membership means "still waiting": a reply whose id is absent gets dropped
+// rather than handed to the wrong request.
+const pendingAnalyses = new Map();
+let nextRequestId = 1;
 
 python.stdout.on('data', (data) => {
     stdoutBuffer += data.toString();
@@ -49,13 +62,35 @@ python.stdout.on('data', (data) => {
     stdoutBuffer = lines.pop();
 
     for (const line of lines) {
-        const result = line.trim();
+        const reply = line.trim();
 
-        if (result) {
-            console.log(`Python result: ${result}`);
+        if (reply) {
+            routeAnalysisReply(reply);
         }
     }
 });
+
+function routeAnalysisReply(reply) {
+
+    const separator = reply.indexOf('|');
+    const requestId = separator === -1 ? NaN : Number(reply.slice(0, separator));
+
+    if (!Number.isInteger(requestId)) {
+        console.log(`Python result (untagged): ${reply}`);
+        return;
+    }
+
+    const body = reply.slice(separator + 1);
+    const pending = pendingAnalyses.get(requestId);
+
+    if (!pending) {
+        console.log(`Discarded reply for request ${requestId} (already timed out): ${body}`);
+        return;
+    }
+
+    pendingAnalyses.delete(requestId);
+    pending.settle(body);
+}
 
 python.on('close', (code) => {
     console.log(`Python exited with code ${code}`);
@@ -63,10 +98,8 @@ python.on('close', (code) => {
 
 const ANALYSIS_TIMEOUT_MS = 20000;
 
-// All calls to Python go through this queue so only one request is ever
-// in flight at a time. Without this, two overlapping calls would each
-// attach their own listener to Python's single shared stdout stream,
-// and the first result line back could get grabbed by the wrong one.
+// Still needed after request ids: chessbot.py handles one line at a time, so
+// queueing keeps ANALYSIS_TIMEOUT_MS timing the analysis rather than the wait.
 let analysisQueue = Promise.resolve();
 
 function analyzeImage(imagePath, sideToMove) {
@@ -89,51 +122,27 @@ function runAnalysis(imagePath, sideToMove) {
             return;
         }
 
-        let resultBuffer = '';
-        let settled = false;
+        const requestId = nextRequestId++;
 
         const timeoutHandle = setTimeout(() => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            python.stdout.off('data', onData);
+            // Makes the late reply harmless -- no waiter left to give it to.
+            pendingAnalyses.delete(requestId);
             reject(new Error('Analysis timed out.'));
         }, ANALYSIS_TIMEOUT_MS);
 
-        const onData = (data) => {
-
-            resultBuffer += data.toString();
-
-            const lines = resultBuffer.split('\n');
-            resultBuffer = lines.pop();
-
-            for (const line of lines) {
-
-                const result = line.trim();
-
-                if (!result || settled) {
-                    continue;
-                }
-
-                settled = true;
+        pendingAnalyses.set(requestId, {
+            settle(body) {
                 clearTimeout(timeoutHandle);
-                python.stdout.off('data', onData);
 
-                if (result.startsWith('ERROR:')) {
-                    reject(new Error(result));
+                if (body.startsWith('ERROR:')) {
+                    reject(new Error(body));
                 } else {
-                    resolve(result);
+                    resolve(body);
                 }
-
-                return;
             }
-        };
+        });
 
-        python.stdout.on('data', onData);
-
-        // "|" delimited since the path itself never contains one.
-        python.stdin.write(`${imagePath}|${sideToMove}\n`);
+        python.stdin.write(`${requestId}|${imagePath}|${sideToMove}\n`);
     });
 }
 
