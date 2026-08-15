@@ -21,7 +21,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 console.log('Starting chess engine...');
 
-const python = spawn('python', ['chessbot.py']);
+const PYTHON_BIN = process.env.PYTHON || 'python';
+
+const python = spawn(PYTHON_BIN, [path.join(__dirname, 'chessbot.py')]);
 
 let pythonReady = false;
 let stdoutBuffer = '';
@@ -57,8 +59,16 @@ python.stdout.on('data', (data) => {
     }
 });
 
+python.on('error', (error) => {
+    console.error(`Could not start ${PYTHON_BIN} (${error.message}). Set PYTHON to override.`);
+    process.exit(1);
+});
+
+// Exit rather than run on: nothing can be answered without the helper, and
+// start-chessbot.bat restarts node.
 python.on('close', (code) => {
-    console.log(`Python exited with code ${code}`);
+    console.error(`Python exited with code ${code}. Restarting.`);
+    process.exit(1);
 });
 
 const ANALYSIS_TIMEOUT_MS = 20000;
