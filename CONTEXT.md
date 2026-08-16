@@ -64,7 +64,18 @@ position and replies with a Lichess analysis link.
   is a manual flag on the command, default is white.
 - No engine eval, no puzzle-solution hiding/DM feature. Discussed and
   deliberately deferred, see "Ideas not yet built" below.
-- Recognition accuracy depends entirely on chessimg2pos.
+- Recognition accuracy depends entirely on chessimg2pos, a fixed
+  pretrained model (no way to configure or swap it per-request). It was
+  trained on a limited set of piece styles, so a piece set stylistically
+  far from those (confirmed case: a set where the queen and king tops
+  look similar to the model, and its knight wasn't recognized as a
+  piece at all) gets misread. find_position_problem catches misreads
+  that happen to produce an impossible position (extra kings, etc.),
+  but a misread that still looks legal -- e.g. a bishop read as a
+  knight -- currently slips through with no warning. Fixing the
+  underlying recognition would mean retraining chessimg2pos on more
+  piece styles (it ships trainer.py/generate_chessboards.py for this),
+  which is a real project, not a quick patch.
 
 ## Ideas discussed, not yet built
 
