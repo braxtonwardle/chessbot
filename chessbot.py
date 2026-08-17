@@ -1,5 +1,5 @@
-from chessimg2pos import predict_fen
 from crop_board import crop_to_chessboard
+from predict_position import predict_fen_corrected
 import sys
 
 
@@ -209,8 +209,10 @@ def main():
                     "Try a clearer or more tightly-framed photo/screenshot."
                 )
 
-            # Ask chessimg2pos for the board position.
-            fen = predict_fen(cropped_path)
+            # Ask chessimg2pos for the board position, corrected for
+            # the one piece-set-related misread it's most prone to:
+            # confusing the king with a queen or rook.
+            fen = predict_fen_corrected(cropped_path)
 
             # Correct for a board photographed from black's perspective,
             # before compressing (needs the literal "1" placeholders to

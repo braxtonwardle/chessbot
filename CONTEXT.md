@@ -17,9 +17,17 @@ position and replies with a Lichess analysis link.
 - `chessbot.py` — Python process. Crops the board, runs chessimg2pos,
   corrects orientation, compresses the FEN, builds the Lichess URL.
 - `crop_board.py` — Isolates the actual 8x8 board from a screenshot before
-  recognition. Two-tier: outer-contour detection, then a sliding-window
-  checkerboard-pattern search as a fallback for boards with a sidebar/panel
-  still attached on one edge.
+  recognition. Three-tier: outer-contour detection, a sliding-window
+  checkerboard-pattern search for boards with a sidebar/panel attached on
+  one edge, and (last resort) a coarse-then-fine position search across
+  the whole image for cases where nearby UI fused into the board's own
+  contour and neither tier above applies.
+- `predict_position.py` — Wraps chessimg2pos's recognition: loads
+  `models/chess_piece_classifier.pt` (see below) instead of chessimg2pos's
+  stock download, and applies a one-king-per-side correction pass on top.
+- `models/chess_piece_classifier.pt` — Fine-tuned piece classifier, see
+  "Piece-set recognition" below. `training/` holds the scripts that built
+  it (not the model itself needing to be rebuilt to make sense of them).
 - `start-chessbot.bat` — Restart-on-crash wrapper; the intended way to run
   this, not `node chessbot.mjs` directly.
 
@@ -64,18 +72,54 @@ position and replies with a Lichess analysis link.
   is a manual flag on the command, default is white.
 - No engine eval, no puzzle-solution hiding/DM feature. Discussed and
   deliberately deferred, see "Ideas not yet built" below.
-- Recognition accuracy depends entirely on chessimg2pos, a fixed
-  pretrained model (no way to configure or swap it per-request). It was
-  trained on a limited set of piece styles, so a piece set stylistically
-  far from those (confirmed case: a set where the queen and king tops
-  look similar to the model, and its knight wasn't recognized as a
-  piece at all) gets misread. find_position_problem catches misreads
-  that happen to produce an impossible position (extra kings, etc.),
-  but a misread that still looks legal -- e.g. a bishop read as a
-  knight -- currently slips through with no warning. Fixing the
-  underlying recognition would mean retraining chessimg2pos on more
-  piece styles (it ships trainer.py/generate_chessboards.py for this),
-  which is a real project, not a quick patch.
+- Recognition accuracy depends on `models/chess_piece_classifier.pt`
+  (see "Piece-set recognition" below). find_position_problem catches
+  misreads that happen to produce an impossible position (extra kings,
+  etc.), but a misread that still looks legal -- e.g. a bishop read as
+  a knight -- can still slip through with no warning.
+
+## Piece-set recognition
+
+chessimg2pos ships a fixed pretrained classifier trained on a narrow set
+of piece styles -- a style far from those gets misread (confirmed cases:
+a set whose queen/king tops looked alike to it, and one whose knight
+wasn't recognized as a piece at all). Rather than accept that, the model
+was fine-tuned on 39 of lichess's 41 piece sets (`monarchy`/`mono`
+excluded -- lichess doesn't serve separate art for them; `disguised` was
+excluded on purpose, since it exists specifically to hide piece identity
+from the viewer, making it actively counterproductive as training data).
+
+- `training/fetch_piece_sets.py` downloads each set's SVGs from
+  lichess1.org's public asset CDN (no auth needed).
+- `training/render_piece_pngs.py` rasterizes them via `resvg_py` --
+  `cairosvg` needs a native cairo library that isn't installed on
+  Windows here, and resvg_py's prebuilt wheel has no such dependency.
+  Sets sized in physical units (e.g. `merida`'s `50mm`) need an explicit
+  `dpi` passed to resvg, or it fails with "invalid size."
+- `training/generate_synthetic_boards.py` composites random positions
+  across every rendered set into labeled board images, using
+  chessimg2pos's own filename convention (`<rank8>-...-<rank1>.png`, one
+  FEN character per square) so its existing tile-labeling code can
+  consume them directly.
+- `training/finetune.py` continues training from chessimg2pos's
+  published weights rather than from scratch -- there's no way to
+  reconstruct its original training data, only its resulting weights,
+  so starting fresh would risk losing everything it already handled.
+  **Synthetic validation accuracy is not a trustworthy stopping
+  signal here**: a first attempt hit 99.9% held-out synthetic accuracy
+  after 10 epochs while badly regressing on real screenshots (an
+  already-correctly-read image came out full of extra ghost pieces) --
+  the model had overfit to pixel-level quirks of the synthetic renderer
+  rather than learning genuinely general recognition. The script now
+  checkpoints every epoch and gates acceptance on two real reference
+  images that must keep matching their known-correct FEN exactly;
+  it stops and rolls back to the last epoch that didn't regress on
+  them, regardless of what synthetic accuracy says. In practice that
+  was epoch 4 of 6 at a low learning rate (`3e-5`).
+- The synthetic images/tiles themselves (`training/piece_svgs`,
+  `piece_pngs`, `synthetic_boards`, `tiles/`, and per-epoch checkpoints)
+  are gitignored -- multiple GB, regenerated by re-running the scripts
+  above in order, not meant to be committed.
 
 ## Ideas discussed, not yet built
 
