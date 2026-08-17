@@ -24,6 +24,13 @@ import sys
 # Real boards measure in the 50s-60s; flat UI panels measure ~0.
 CHESSBOARD_MIN_SCORE = 12.0
 
+# Checkerboard parity (which corner counts as "light") doesn't actually
+# affect the score below -- abs(light_mean - dark_mean) comes out
+# identical either way abs() is parity-invariant. Computed once here
+# instead of inside _chessboard_likeness, which crop_board's whole-image
+# fallback search calls thousands of times per image.
+_CHECKER_PATTERN = np.indices((8, 8)).sum(axis=0) % 2
+
 
 def _chessboard_likeness(gray_region, grid_size=8, cell_px=20):
     """
@@ -42,30 +49,23 @@ def _chessboard_likeness(gray_region, grid_size=8, cell_px=20):
     size = grid_size * cell_px
     resized = cv2.resize(gray_region, (size, size))
 
-    cell_means = np.zeros((grid_size, grid_size))
+    # Cell means via reshape+mean instead of a Python loop over 64
+    # cells -- same numbers, but this runs thousands of times per image
+    # in the whole-image fallback search, where per-cell Python-level
+    # slicing/indexing overhead adds up fast on weaker CPUs.
+    cell_means = resized.reshape(grid_size, cell_px, grid_size, cell_px).mean(axis=(1, 3))
 
-    for row in range(grid_size):
-        for col in range(grid_size):
-            cell = resized[
-                row * cell_px:(row + 1) * cell_px,
-                col * cell_px:(col + 1) * cell_px
-            ]
-            cell_means[row, col] = cell.mean()
+    if grid_size == 8:
+        pattern = _CHECKER_PATTERN
+    else:
+        pattern = np.indices((grid_size, grid_size)).sum(axis=0) % 2
 
-    # Two possible checkerboard parities (a1 light vs a1 dark).
-    pattern_a = np.indices((grid_size, grid_size)).sum(axis=0) % 2
-    pattern_b = 1 - pattern_a
-
-    best_score = 0
-
-    for pattern in (pattern_a, pattern_b):
-        light_group = cell_means[pattern == 1]
-        dark_group = cell_means[pattern == 0]
-        # Larger gap between the two groups' average brightness =
-        # stronger checkerboard signal. Pieces sitting on squares add
-        # noise but rarely erase the alternation entirely.
-        score = abs(light_group.mean() - dark_group.mean())
-        best_score = max(best_score, score)
+    light_group = cell_means[pattern == 1]
+    dark_group = cell_means[pattern == 0]
+    # Larger gap between the two groups' average brightness = stronger
+    # checkerboard signal. Pieces sitting on squares add noise but
+    # rarely erase the alternation entirely.
+    best_score = abs(light_group.mean() - dark_group.mean())
 
     return best_score
 
