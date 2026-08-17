@@ -357,6 +357,13 @@ async function handleMessage(sock, message) {
             userMessage = rawMessage.replace(/^ERROR:\s*/, '').trim();
         } else if (rawMessage === 'Analysis timed out.') {
             userMessage = 'That took too long to analyze. Try again in a moment.';
+        } else if (rawMessage === 'Chess model is not ready yet.') {
+            // Loading the model can take well over a minute on slower
+            // hardware -- without this, a request that lands in that
+            // window gets the same generic apology as a genuinely bad
+            // photo, which reads as "this is broken" instead of "wait a
+            // few seconds."
+            userMessage = "I'm still starting up, give me a few seconds and try again.";
         }
 
         try {
