@@ -5,6 +5,9 @@ session/
 # Node dependencies -- reinstalled via `npm install`, shouldn't be tracked.
 node_modules/
 
+# Python virtual environment -- reinstalled via `pip install -r requirements.txt`.
+.venv/
+
 # Python bytecode cache
 __pycache__/
 *.pyc
