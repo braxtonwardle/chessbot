@@ -33,6 +33,9 @@ training/model_epoch*.pt
 training/model_finetuned.pt
 training/*.txt
 
+# Puzzle round state (names + in-progress answers) -- runtime data, not code.
+puzzle_state.json
+
 # Editor/OS clutter
 .vscode/
 Thumbs.db
